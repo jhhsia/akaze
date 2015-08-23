@@ -104,7 +104,9 @@ int main(int argc, char *argv[]) {
   cv::Mat img_rgb = cv::Mat(cv::Size(img.cols, img.rows), CV_8UC3);
   cvtColor(img,img_rgb, cv::COLOR_GRAY2BGR);
   draw_keypoints(img_rgb, kpts);
-  cv::imshow(img_path, img_rgb);
+
+  cv::namedWindow("A-KAZE", cv::WINDOW_NORMAL);
+  cv::imshow("A-KAZE", img_rgb);
   cv::waitKey(0);
 }
 
