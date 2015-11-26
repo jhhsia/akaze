@@ -1,7 +1,11 @@
+set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-O3 -gencode arch=compute_30,code=sm_30)
+set(CUDA_VERBOSE_BUILD ON CACHE BOOL "nvcc verbose" FORCE)
 
 # Find external libraries and dependencies
-find_package(OpenCV REQUIRED)
+#set( OpenCV_DIR /home/prenav/sbox/image-core/opencv-3.0.0/build)
+find_package( OpenCV REQUIRED  )
 find_package(Doxygen)
+find_package(CUDA REQUIRED)
 
 if (NOT APPLE)
   find_package(OpenMP)
@@ -10,8 +14,8 @@ endif ()
 # ============================================================================ #
 # Compilation flags
 IF(UNIX)
-  SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -g -O0  -Wall -Wextra -Wunused-variable -DDEBUG -D_DEBUG")
-  SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -g  -Wall -Wextra -Wunused-variable -DDEBUG -D_DEBUG")
+  SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -g -O3  -Wall -Wextra -Wunused-variable -DDEBUG -D_DEBUG")
+  SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O3 -g  -Wall -Wextra -Wunused-variable -DDEBUG -D_DEBUG")
 ENDIF(UNIX)
 
 if(OPENMP_FOUND)
@@ -32,7 +36,7 @@ endif(OPENMP_FOUND)
 
 # ============================================================================ #
 # Create projects
-include_directories("lib/")
+include_directories("lib/" ${OpenCV_INCLUDE_DIRS})
 
 # AKAZE libraries
 set(AKAZE_SRCS
@@ -42,20 +46,23 @@ set(AKAZE_SRCS
     lib/nldiffusion_functions.h  lib/nldiffusion_functions.cpp
     lib/utils.h                  lib/utils.cpp)
 
+set(CUDA_SEPARABLE_COMPILATION ON)
+cuda_add_library(CudaLib gpu/ImageOperation.h gpu/GeneralFilters.cu gpu/FlowFilter.cu gpu/GaussianFilter.cu)
+
 add_library(AKAZE ${AKAZE_SRCS})
-target_link_libraries(AKAZE ${OpenCV_LIBS})
+target_link_libraries(AKAZE ${OpenCV_LIBS} CudaLib)
 
 # Feature detector program
 add_executable(akaze_features akaze_features.cpp)
-target_link_libraries(akaze_features AKAZE)
+target_link_libraries(akaze_features AKAZE CudaLib)
 
 # Image matching program
 add_executable(akaze_match akaze_match.cpp)
-target_link_libraries(akaze_match AKAZE)
+target_link_libraries(akaze_match AKAZE CudaLib)
 
 # Program that compares AKAZE with ORB and BRISK
 add_executable(akaze_compare akaze_compare.cpp)
-target_link_libraries(akaze_compare AKAZE)
+target_link_libraries(akaze_compare AKAZE CudaLib)
 
 # ============================================================================ #
 # Library installation

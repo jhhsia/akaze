@@ -26,6 +26,10 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "../gpu/helper_cuda.h"
+
 using namespace std;
 
 /* ************************************************************************* */
@@ -41,6 +45,18 @@ int parse_input_options(AKAZEOptions& options, std::string& img_path,
 /* ************************************************************************* */
 int main(int argc, char *argv[]) {
 
+  //
+
+  int dev = gpuDeviceInit(0);
+
+    cudaDeviceProp device_prop;
+    checkCudaErrors(cudaGetDeviceProperties(&device_prop, dev));
+
+    printf("CUDA device [%s] has %d Multi-Processors, Compute %d.%d\n",
+           device_prop.name, device_prop.multiProcessorCount, device_prop.major, device_prop.minor);
+
+
+    //
   // Variables
   AKAZEOptions options;
   string img_path, kpts_path;
@@ -71,6 +87,7 @@ int main(int argc, char *argv[]) {
   // Don't forget to specify image dimensions in AKAZE's options
   options.img_width = img.cols;
   options.img_height = img.rows;
+
 
   // Extract features
   libAKAZE::AKAZE evolution(options);

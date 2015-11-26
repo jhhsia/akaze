@@ -118,3 +118,6 @@ void compute_derivative_kernels(cv::OutputArray kx_, cv::OutputArray ky_,
 /// @return 1->is maximum, 0->otherwise
 bool check_maximum_neighbourhood(const cv::Mat& img, int dsize, float value,
                                  int row, int col, bool same_img);
+
+
+void cal_determinant_hessian(std::vector<TEvolution>& evo, bool verb);

@@ -183,6 +183,7 @@ struct TEvolution {
   cv::Mat Ldet;                     ///< Detector response
   float etime;                      ///< Evolution time
   float esigma;                     ///< Evolution sigma. For linear diffusion t = sigma^2 / 2
+  float multiDerSigmaSize;
   size_t octave;                    ///< Image octave
   size_t sublevel;                  ///< Image sublevel in each octave
   size_t sigma_size;                ///< Integer sigma. For computing the feature detector responses

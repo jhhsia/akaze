@@ -113,10 +113,12 @@ int AKAZE::Create_Nonlinear_Scale_Space(const cv::Mat& img) {
 
   // Copy the original image to the first level of the evolution
   img.copyTo(evolution_[0].Lt);
+  //one shot blur.
   gaussian_2D_convolution(evolution_[0].Lt, evolution_[0].Lt, 0, 0, options_.soffset);
   evolution_[0].Lt.copyTo(evolution_[0].Lsmooth);
 
   // First compute the kcontrast factor
+    // with gscal 1.0 blur?
   options_.kcontrast = compute_k_percentile(img, options_.kcontrast_percentile,
                                             1.0, options_.kcontrast_nbins, 0, 0);
 
@@ -158,9 +160,16 @@ int AKAZE::Create_Nonlinear_Scale_Space(const cv::Mat& img) {
         cerr << "Diffusivity: " << options_.diffusivity << " is not supported" << endl;
     }
 
+
     // Perform FED n inner steps
     for (int j = 0; j < nsteps_[i-1]; j++)
       nld_step_scalar(evolution_[i].Lt, evolution_[i].Lflow, evolution_[i].Lstep, tsteps_[i-1][j]);
+
+
+ //     cv::namedWindow( "Display window",   cv::WINDOW_AUTOSIZE );// Create a window for display.
+ //     cv::imshow( "Display window", evolution_[i].Lt );                   // Show our image inside it.
+  //    cv::waitKey(0);
+
   }
 
   t2 = cv::getTickCount();
@@ -192,7 +201,7 @@ void AKAZE::Compute_Multiscale_Derivatives() {
 
   t1 = cv::getTickCount();
 
-#ifdef _OPENMP
+#ifdef _OPENMP_NO
   omp_set_num_threads(OMP_MAX_THREADS);
 #pragma omp parallel for
 #endif
@@ -208,11 +217,15 @@ void AKAZE::Compute_Multiscale_Derivatives() {
     compute_scharr_derivatives(evolution_[i].Ly, evolution_[i].Lyy, 0, 1, sigma_size_);
     compute_scharr_derivatives(evolution_[i].Lx, evolution_[i].Lxy, 0, 1, sigma_size_);
 
-    evolution_[i].Lx = evolution_[i].Lx*((sigma_size_));
-    evolution_[i].Ly = evolution_[i].Ly*((sigma_size_));
-    evolution_[i].Lxx = evolution_[i].Lxx*((sigma_size_)*(sigma_size_));
-    evolution_[i].Lxy = evolution_[i].Lxy*((sigma_size_)*(sigma_size_));
-    evolution_[i].Lyy = evolution_[i].Lyy*((sigma_size_)*(sigma_size_));
+    //TODO combine this pass with determine calculation
+    evolution_[i].multiDerSigmaSize = sigma_size_;
+#if 0
+      evolution_[i].Lx = evolution_[i].Lx*((sigma_size_));
+      evolution_[i].Ly = evolution_[i].Ly*((sigma_size_));
+      evolution_[i].Lxx = evolution_[i].Lxx*((sigma_size_)*(sigma_size_));
+      evolution_[i].Lxy = evolution_[i].Lxy*((sigma_size_)*(sigma_size_));
+      evolution_[i].Lyy = evolution_[i].Lyy*((sigma_size_)*(sigma_size_));
+#endif
   }
 
   t2 = cv::getTickCount();
@@ -225,20 +238,7 @@ void AKAZE::Compute_Determinant_Hessian_Response() {
   // Firstly compute the multiscale derivatives
   Compute_Multiscale_Derivatives();
 
-  for (size_t i = 0; i < evolution_.size(); i++) {
-
-    if (options_.verbosity == true)
-      cout << "Computing detector response. Determinant of Hessian. Evolution time: " << evolution_[i].etime << endl;
-
-    for (int ix = 0; ix < evolution_[i].Ldet.rows; ix++) {
-      const float* lxx = evolution_[i].Lxx.ptr<float>(ix);
-      const float* lxy = evolution_[i].Lxy.ptr<float>(ix);
-      const float* lyy = evolution_[i].Lyy.ptr<float>(ix);
-      float* ldet = evolution_[i].Ldet.ptr<float>(ix);
-      for (int jx = 0; jx < evolution_[i].Ldet.cols; jx++)
-        ldet[jx] = (lxx[jx]*lyy[jx]-lxy[jx]*lxy[jx]);
-    }
-  }
+  cal_determinant_hessian( evolution_, options_.verbosity );
 }
 
 /* ************************************************************************* */
@@ -375,6 +375,7 @@ void AKAZE::Find_Scale_Space_Extrema(std::vector<cv::KeyPoint>& kpts) {
       kpts.push_back(point);
   }
 
+    int kp_found = kpts.size();
   t2 = cv::getTickCount();
   timing_.extrema = 1000.0*(t2-t1) / cv::getTickFrequency();
 }
@@ -1395,6 +1396,7 @@ void AKAZE::Save_Detector_Responses() {
 
 /* ************************************************************************* */
 void AKAZE::Show_Computation_Times() const {
+    cout << "(*) Time k percentile: " << timing_.kcontrast << endl;
   cout << "(*) Time Scale Space: " << timing_.scale << endl;
   cout << "(*) Time Detector: " << timing_.detector << endl;
   cout << "   - Time Derivatives: " << timing_.derivatives << endl;

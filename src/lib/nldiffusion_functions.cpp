@@ -21,9 +21,32 @@
 
 #include "nldiffusion_functions.h"
 #include <opencv2/imgproc/imgproc.hpp>
-
+#include <opencv2/highgui/highgui.hpp>
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "../gpu/helper_cuda.h"
+#include "../gpu/ImageOperation.h"
+#include "../gpu/helper_image.h"
 using namespace std;
 
+#define NO_CUDA 0
+
+#if NO_CUDA
+    #define SHARR_CUDA 0
+    #define SHARR_DER_CUDA 0
+    #define HASSIAN_CUDA 0
+    #define NLD_CUDA 0
+    #define HALF_SIZE_CUDA 0
+    #define GAUSSIAN_CUDA 0
+
+#else
+    #define SHARR_CUDA 1
+    #define SHARR_DER_CUDA 1
+    #define HASSIAN_CUDA 1
+    #define NLD_CUDA 1
+    #define HALF_SIZE_CUDA 1
+    #define GAUSSIAN_CUDA 1
+#endif
 /* ************************************************************************* */
 void gaussian_2D_convolution(const cv::Mat& src, cv::Mat& dst, size_t ksize_x,
                              size_t ksize_y, float sigma) {
@@ -41,15 +64,216 @@ void gaussian_2D_convolution(const cv::Mat& src, cv::Mat& dst, size_t ksize_x,
   if ((ksize_y % 2) == 0)
     ksize_y += 1;
 
+#if 0
+    cv::Mat temp = cv::Mat( src.rows, src.cols, CV_32F, 1.0f );
+
+        float* a_row = temp.ptr<float>(0);
+    for(int i = 0; i < src.cols; ++i)
+    {
+        //a_row[i] = 0;
+    }
+
+#endif
+
+#if (!GAUSSIAN_CUDA)
+    double t1 = 0.0, t2 = 0.0;
   // Perform the Gaussian Smoothing with border replication
-  cv::GaussianBlur(src, dst, cv::Size(ksize_x, ksize_y), sigma, sigma, cv::BORDER_REPLICATE);
+  t1 = cv::getTickCount();
+    cv::GaussianBlur(src, dst, cv::Size(ksize_x, ksize_y), sigma, sigma, cv::BORDER_REPLICATE);
+     t2 = cv::getTickCount();
+    float time = 1000.0*(t2-t1) / cv::getTickFrequency();
+    printf("-- gaussian_2D_convolution %.4f ksize  %d\n",time,ksize_x );
+#else
+
+    //cv::Mat temp = cv::Mat( src.rows, src.cols, CV_32F, 1.0f );
+    //cv::GaussianBlur(src, temp, cv::Size(ksize_x, ksize_y), sigma, sigma, cv::BORDER_REPLICATE);
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    /// cudaaaaa
+    {
+        float* d_src;
+        float* d_dst;
+        float* d_intem;
+
+        size_t img_size = src.cols*src.rows*sizeof(float);
+        cudaMalloc(&d_src, img_size);
+        cudaMalloc(&d_dst, img_size);
+        cudaMalloc(&d_intem, img_size);
+        //float* client_dst = (float*)malloc( img_size);
+
+        cudaMemcpy(d_src, src.data, img_size, cudaMemcpyHostToDevice);
+
+        cudaEventRecord(start);
+        if(ksize_y == 9)
+        {
+            GaussianCUDA9x9TwoPass(d_src, d_intem, d_dst, sigma, src.cols, src.rows );
+        }
+        else
+        {
+           // GaussianCUDA5x5(d_src, d_dst, sigma, src.cols, src.rows );
+            GaussianCUDA5x5TwoPass(d_src, d_intem, d_dst, sigma, src.cols, src.rows );
+        }
+        cudaDeviceSynchronize();
+
+        cudaEventRecord(stop);
+        if(dst.data == NULL)
+        {
+            dst = cv::Mat( src.rows, src.cols, CV_32F);
+        }
+
+        cudaMemcpy(dst.data, d_dst, img_size, cudaMemcpyDeviceToHost);
+
+        float milliseconds = 0;
+        cudaEventElapsedTime(&milliseconds, start, stop);
+#if 0
+
+        cudaMemcpy(client_dst, d_dst, img_size, cudaMemcpyDeviceToHost);
+        //temp.copyTo(dst);
+        //
+
+        for(int i = 0; i < src.rows; ++i)
+        {
+            const float* src_x_u  = temp.ptr<float>(i);
+            int start_offset = i*src.cols;
+            for(int j = 6; j < 7; ++j)
+            {
+                const float* cuda_s   = client_dst+start_offset;
+                float diff = src_x_u[j]-cuda_s[j];
+                if(diff > 0.000001f)
+                {
+                    printf("-- %d , %d \n", i, j);
+                    printf("-- %.5f/%.5f diff %.6f\n",src_x_u[j], cuda_s[j], src_x_u[j]-cuda_s[j] );
+                }
+            }
+        }
+
+        printf(" ksize = %d/%d\n" , ksize_y, ksize_x);
+#endif
+        cudaFree(d_src);
+        cudaFree(d_dst);
+        cudaFree(d_intem);
+
+        //float time = 1000.0*(t2-t1) / cv::getTickFrequency();
+        printf("-- gaussian_2D_convolution %.4f ksize  %d\n",milliseconds,ksize_x );
+
+    }
+#endif
+
+
+
+
+
 }
 
 /* ************************************************************************* */
+void image_derivatives_scharr_jay(const cv::Mat& src, cv::Mat& dst,
+                                  const size_t xorder, const size_t yorder);
+
 void image_derivatives_scharr(const cv::Mat& src, cv::Mat& dst,
                               const size_t xorder, const size_t yorder) {
-  cv::Scharr(src, dst, CV_32F, xorder, yorder, 1.0, 0, cv::BORDER_DEFAULT);
+
+#if (!SHARR_CUDA)
+    image_derivatives_scharr_jay(src, dst, xorder,yorder  );
+
+    // CUDAAAAA
+#else
+
+    {
+        float* d_src;
+        float* d_dst;
+
+        size_t img_size = dst.cols*dst.rows*sizeof(float);
+        cudaMalloc(&d_src, img_size);
+        cudaMalloc(&d_dst, img_size);
+        float* client_dst = (float*)malloc( img_size);
+
+        cudaMemcpy(d_src, src.data, img_size, cudaMemcpyHostToDevice);
+        ScharrFilerCuda(d_src, d_dst, src.cols, src.rows, yorder);
+        cudaMemcpy(dst.data, d_dst, img_size, cudaMemcpyDeviceToHost);
+
+#if 0
+        cudaMemcpy(client_dst, d_dst, img_size, cudaMemcpyDeviceToHost);
+    //
+      int start_offset = 64*src.cols;
+        int diffcout = 0;
+    for(int i = 0; i < src.cols; ++i)
+    {
+        const float* src_x_u  = dst.ptr<float>(64);
+        const float* cuda_s   = client_dst+start_offset;
+        float diff = src_x_u[i]-cuda_s[i];
+        if(diff != 0)
+        {
+            ++diffcout;
+            printf("-- %.2f/%.2f diff %.4f\n",src_x_u[i], cuda_s[i], src_x_u[i]-cuda_s[i] );
+        }
+
+    }
+
+       // printf("-- %.2f/%.2f diff %.4f\n",src_x_u[i], cuda_s[i], src_x_u[i]-cuda_s[i] );
+
+
+      //
+#endif
+        cudaFree(d_src);
+        cudaFree(d_dst);
+  }
+#endif
+
 }
+
+
+void image_derivatives_scharr_jay(const cv::Mat& src, cv::Mat& dst,
+                              const size_t xorder, const size_t yorder) {
+
+
+    int width = src.cols;
+    int height = src.rows;
+    if( xorder == 1)
+    {
+        for(int j = 1; j < height -1; ++j)
+        {
+            const float* src_x_u  = src.ptr<float>(j-1);
+            const float* src_x    = src.ptr<float>(j);
+            const float* src_x_d  = src.ptr<float>(j+1);
+
+            float* dst_x = dst.ptr<float>(j);
+            for(int i = 1 ; i < width -1; ++i )
+            {
+                float left = (src_x_u[i-1] + src_x_d[i-1]) * -3.0f + -10.0f * src_x[i-1];
+                float right = (src_x_u[i+1] + src_x_d[i+1]) * 3.0f + 10.0f * src_x[i+1];
+                dst_x[i] = left+right;
+            }
+        }
+    }
+    else
+    {
+        for(int j = 1; j < height -1; ++j)
+        {
+            const float* src_x_u  = src.ptr<float>(j-1);
+            //const float* src_x    = src.ptr<float>(j);
+            const float* src_x_d  = src.ptr<float>(j+1);
+
+            float* dst_x = dst.ptr<float>(j);
+            for(int i = 1 ; i < width -1; ++i )
+            {
+                float up = (src_x_u[i-1] + src_x_u[i+1]) * -3.0f + -10.0f * src_x_u[i];
+                float down = (src_x_d[i-1] + src_x_d[i+1]) * 3.0f + 10.0f * src_x_d[i];
+                dst_x[i] = up+down;
+            }
+        }
+    }
+}
+
+/* ************************************************************************* */
+void image_derivatives_sobel(const cv::Mat& src, cv::Mat& dst,
+                              const size_t xorder, const size_t yorder) {
+  //cv::Scharr(src, dst, CV_32F, xorder, yorder, 1.0, 0, cv::BORDER_DEFAULT);
+
+  cv::Sobel( src, dst, CV_32F, xorder, yorder, 3, 1.0, 0, cv::BORDER_DEFAULT );
+}
+
 
 /* ************************************************************************* */
 void pm_g1(const cv::Mat& Lx, const cv::Mat& Ly, cv::Mat& dst, const float k) {
@@ -69,7 +293,7 @@ void pm_g1(const cv::Mat& Lx, const cv::Mat& Ly, cv::Mat& dst, const float k) {
 
 /* ************************************************************************* */
 void pm_g2(const cv::Mat& Lx, const cv::Mat& Ly, cv::Mat& dst, const float k) {
-
+#if NO_CUDA
   cv::Size sz = Lx.size();
   float inv_k = 1.0 / (k*k);
   for (int y = 0; y < sz.height; y++) {
@@ -79,6 +303,41 @@ void pm_g2(const cv::Mat& Lx, const cv::Mat& Ly, cv::Mat& dst, const float k) {
     for (int x = 0; x < sz.width; x++)
       dst_row[x] = 1.0 / (1.0+inv_k*(Lx_row[x]*Lx_row[x] + Ly_row[x]*Ly_row[x]));
   }
+#else
+    {
+        float* s_lx;
+        float* s_ly;
+        float* d_flow;
+
+        size_t img_size = dst.cols*dst.rows*sizeof(float);
+        cudaMalloc(&s_lx, img_size);
+        cudaMalloc(&s_ly, img_size);
+        cudaMalloc(&d_flow, img_size);
+
+        //float* client_dst = (float*)malloc( img_size);
+
+        cudaMemcpy(s_lx, Lx.data, img_size, cudaMemcpyHostToDevice);
+        cudaMemcpy(s_ly, Ly.data, img_size, cudaMemcpyHostToDevice);
+
+        PM_G2Cuda( s_lx, s_ly, d_flow, dst.cols, dst.rows, k );
+        cudaMemcpy(dst.data, d_flow, img_size, cudaMemcpyDeviceToHost);
+
+#if 0
+        int start_offset = 128*dst.cols;
+
+        for(int i = 0; i < dst.cols; ++i)
+        {
+            const float* src_x_u  = dst.ptr<float>(128);
+            const float* cuda_s   = client_dst+start_offset;
+            printf("-- %.5f/%.5f diff %.4f\n",src_x_u[i], cuda_s[i], src_x_u[i]-cuda_s[i] );
+        }
+#endif
+        cudaFree(s_lx);
+        cudaFree(s_ly);
+        cudaFree(d_flow);
+
+    }
+#endif
 }
 
 /* ************************************************************************* */
@@ -128,8 +387,9 @@ float compute_k_percentile(const cv::Mat& img, float perc, float gscale,
 
   // Create the matrices
   cv::Mat gaussian = cv::Mat::zeros(img.rows, img.cols, CV_32F);
+
   cv::Mat Lx = cv::Mat::zeros(img.rows, img.cols, CV_32F);
-  cv::Mat Ly = cv::Mat::zeros(img.rows, img.cols, CV_32F);
+    cv::Mat Ly = cv::Mat::zeros(img.rows, img.cols, CV_32F);
 
   // Set the histogram to zero
   for (size_t i = 0; i < nbins; i++)
@@ -139,8 +399,10 @@ float compute_k_percentile(const cv::Mat& img, float perc, float gscale,
   gaussian_2D_convolution(img, gaussian, ksize_x, ksize_y, gscale);
 
   // Compute the Gaussian derivatives Lx and Ly
-  image_derivatives_scharr(gaussian, Lx, 1, 0);
-  image_derivatives_scharr(gaussian, Ly, 0, 1);
+
+    image_derivatives_scharr( gaussian, Lx, 1, 0);
+    image_derivatives_scharr( gaussian, Ly, 0, 1);
+
 
   // Skip the borders for computing the histogram
   for (int y = 1; y < gaussian.rows-1; y++) {
@@ -203,19 +465,158 @@ void compute_scharr_derivatives(const cv::Mat& src, cv::Mat& dst, const size_t x
 
   cv::Mat kx, ky;
   compute_derivative_kernels(kx, ky, xorder, yorder, scale);
+#if (!SHARR_DER_CUDA)
+
+#if 0
+    cv::Mat temp = cv::Mat( src.rows, src.cols, CV_32F, 1.0f );
+
+        float* a_row = temp.ptr<float>(0);
+    for(int i = 0; i < src.cols; ++i)
+    {
+        a_row[i] = 0;
+    }
+
+    ky.ptr<float>(0)[0 ] = 0.01f;
+    ky.ptr<float>(0)[kx.rows/2 ] = 0.1f;
+    ky.ptr<float>(0)[kx.rows-1 ] = 0.01f;
+
+    kx.ptr<float>(0)[0 ] = 1;
+    kx.ptr<float>(0)[1 ] = 0;
+    kx.ptr<float>(0)[2] =0 ;
+    kx.ptr<float>(0)[3 ] = 0;
+    kx.ptr<float>(0)[4 ] = 1;
+#endif
   cv::sepFilter2D(src, dst, CV_32F, kx, ky);
+#else
+    //TODO this is 20+ms slower than sepFilter2D!!
+
+    {
+        float* s_src;
+        float* d_dst;
+
+        size_t img_size = src.cols*src.rows*sizeof(float);
+        cudaMalloc(&s_src, img_size);
+        cudaMalloc(&d_dst, img_size);
+
+        //float* client_dst = (float*)malloc( img_size);
+
+        cudaMemcpy(s_src, src.data, img_size, cudaMemcpyHostToDevice);
+
+        int hsize = kx.rows ;
+
+        cv::Mat& ref =  yorder == 1 ? kx : ky;
+
+        float mk = ref.ptr<float>(0)[hsize/2 ];
+        float ek = ref.ptr<float>(0)[0];
+
+        SharrDerivativeCUDA( s_src, d_dst, mk, ek,yorder,hsize, src.cols, src.rows );
+        cudaMemcpy(dst.data, d_dst, img_size, cudaMemcpyDeviceToHost);
+
+       // cudaMemcpy(client_dst, d_dst, img_size, cudaMemcpyDeviceToHost);
+#if 0
+        //
+        int start_offset = 2*dst.cols;
+
+        for(int i = 0; i < dst.cols; ++i)
+        {
+            const float* src_x_u  = dst.ptr<float>(2);
+            const float* cuda_s   = client_dst+start_offset;
+            printf("-- %.5f/%.5f diff %.4f\n",src_x_u[i], cuda_s[i], src_x_u[i]-cuda_s[i] );
+        }
+#endif
+
+        cudaFree(s_src);
+        cudaFree(d_dst);
+    }
+#endif
+}
+
+void cal_determinant_hessian(std::vector<TEvolution>& evo, bool verb )
+{
+    for (size_t i = 0; i < evo.size(); i++) {
+
+#if (!HASSIAN_CUDA)
+        if (verb == true)
+            cout << "Computing detector response. Determinant of Hessian. Evolution time: " << evo[i].etime << endl;
+
+        float sigma_size_ = evo[i].multiDerSigmaSize;
+        float sigma_size_sqr = sigma_size_*sigma_size_;
+        float sigma_size_quad = sigma_size_sqr*sigma_size_sqr;
+ //       evo[i].Lx = evo[i].Lx*((sigma_size_));
+  //      evo[i].Ly = evo[i].Ly*((sigma_size_));
+ //       evo[i].Lxx = evo[i].Lxx*(sigma_size_sqr);
+ //       evo[i].Lxy = evo[i].Lxy*(sigma_size_sqr);
+ //       evo[i].Lyy = evo[i].Lyy*(sigma_size_sqr);
+
+        int height = evo[i].Ldet.rows;
+        int width = evo[i].Ldet.cols;
+        for (int ix = 0; ix < height; ix++) {
+            const float* lxx = evo[i].Lxx.ptr<float>(ix);
+            const float* lxy = evo[i].Lxy.ptr<float>(ix);
+            const float* lyy = evo[i].Lyy.ptr<float>(ix);
+            float* ldet = evo[i].Ldet.ptr<float>(ix);
+            for (int jx = 0; jx < width; jx++)
+                ldet[jx] = ( lxx[jx]*sigma_size_sqr*lyy[jx]*sigma_size_sqr-lxy[jx]*sigma_size_sqr*lxy[jx]*sigma_size_sqr);
+        }
+
+#else
+        {
+            float* s_lxx;
+            float* s_lyy;
+            float* s_lxy;
+            float* ldet;
+
+            size_t img_size = evo[i].Lxx.cols*evo[i].Lxx.rows*sizeof(float);
+            cudaMalloc(&s_lxx, img_size);
+            cudaMalloc(&s_lyy, img_size);
+            cudaMalloc(&s_lxy, img_size);
+            cudaMalloc(&ldet, img_size);
+
+         //   float* client_dst = (float*)malloc( img_size);
+
+            cudaMemcpy(s_lxx, evo[i].Lxx.data, img_size, cudaMemcpyHostToDevice);
+            cudaMemcpy(s_lyy, evo[i].Lyy.data, img_size, cudaMemcpyHostToDevice);
+            cudaMemcpy(s_lxy, evo[i].Lxy.data, img_size, cudaMemcpyHostToDevice);
+
+            float sigma_size_ = evo[i].multiDerSigmaSize;
+            float sigma_size_sqr = sigma_size_*sigma_size_;
+            float sigma_size_quad = sigma_size_sqr*sigma_size_sqr;
+            DeterminantHessianCUDA( s_lxx, s_lyy, s_lxy, ldet, sigma_size_quad, evo[i].Lxx.cols, evo[i].Lxx.rows);
+            cudaMemcpy(evo[i].Ldet.data, ldet, img_size, cudaMemcpyDeviceToHost);
+
+    #if 0
+            cudaMemcpy(client_dst, ldet, img_size, cudaMemcpyDeviceToHost);
+            //
+            int width =  evo[i].Ldet.cols;
+            int start_offset = 16* width;
+            const float* src_x_u  = evo[i].Ldet.ptr<float>(16);
+            for(int i = 0; i < width; ++i)
+            {
+
+                const float* cuda_s   = client_dst+start_offset;
+                printf("-- %.5f/%.5f diff %.4f\n",src_x_u[i], cuda_s[i], src_x_u[i]-cuda_s[i] );
+            }
+    #endif
+
+            cudaFree(s_lxx);
+            cudaFree(s_lxy);
+            cudaFree(s_lyy);
+            cudaFree(ldet);
+        }
+#endif
+    }
 }
 
 /* ************************************************************************* */
 void nld_step_scalar(cv::Mat& Ld, const cv::Mat& c, cv::Mat& Lstep, const float stepsize) {
 
-  Lstep = cv::Scalar(0);
-
+#if (!NLD_CUDA)
   // Diffusion all the image except borders
-#ifdef _OPENMP
+#ifdef _OPENMP_NO
   omp_set_num_threads(OMP_MAX_THREADS);
 #pragma omp parallel for schedule(dynamic)
 #endif
+
   for (int y = 1; y < Lstep.rows-1; y++) {
     const float* c_row = c.ptr<float>(y);
     const float* c_row_p = c.ptr<float>(y+1);
@@ -234,6 +635,7 @@ void nld_step_scalar(cv::Mat& Ld, const cv::Mat& c, cv::Mat& Lstep, const float 
       Lstep_row[x] = 0.5*stepsize*(xpos-xneg + ypos-yneg);
     }
   }
+
 
   // First row
   const float* c_row = c.ptr<float>(0);
@@ -303,21 +705,102 @@ void nld_step_scalar(cv::Mat& Ld, const cv::Mat& c, cv::Mat& Lstep, const float 
     Lstep_row[Lstep.cols-1] = 0.5*stepsize*(-xneg+ypos-yneg);
   }
 
-  // Ld = Ld + Lstep
-  for (int y = 0; y < Lstep.rows; y++) {
-    float* Ld_row = Ld.ptr<float>(y);
-    float* Lstep_row = Lstep.ptr<float>(y);
-    for (int x = 0; x < Lstep.cols; x++) {
-      Ld_row[x] = Ld_row[x] + Lstep_row[x];
+
+    // Ld = Ld + Lstep
+    for (int y = 0; y < Lstep.rows; y++) {
+        float* Ld_row = Ld.ptr<float>(y);
+        float* Lstep_row = Lstep.ptr<float>(y);
+        for (int x = 0; x < Lstep.cols; x++) {
+            Ld_row[x] = Ld_row[x] + Lstep_row[x];
+        }
     }
-  }
+#else
+    {
+        float* s_flow;
+        float* s_lt;
+        float* d_lt;
+
+        size_t img_size = Lstep.cols*Lstep.rows*sizeof(float);
+        cudaMalloc(&s_flow, img_size);
+        cudaMalloc(&s_lt, img_size);
+        cudaMalloc(&d_lt, img_size);
+
+        float* client_dst = (float*)malloc( img_size);
+
+        cudaMemcpy(s_flow, c.data, img_size, cudaMemcpyHostToDevice);
+        cudaMemcpy(s_lt, Ld.data, img_size, cudaMemcpyHostToDevice);
+
+        NLDStepScalarCUDA( s_flow, s_lt, d_lt, stepsize, Lstep.cols, Lstep.rows );
+        cudaMemcpy(Ld.data, d_lt, img_size, cudaMemcpyDeviceToHost);
+      //  cudaMemcpy(client_dst, d_lt, img_size, cudaMemcpyDeviceToHost);
+#if 0
+        // Ld = Ld + Lstep
+        for (int y = 0; y < Lstep.rows; y++) {
+            float* Ld_row = Ld.ptr<float>(y);
+            float* Lstep_row = Lstep.ptr<float>(y);
+            for (int x = 0; x < Lstep.cols; x++) {
+                Ld_row[x] = Ld_row[x] + Lstep_row[x];
+            }
+        }
+
+        //
+        int start_offset = 128*Lstep.cols;
+
+        for(int i = 0; i < Lstep.cols; ++i)
+        {
+            const float* src_x_u  = Ld.ptr<float>(128);
+            const float* cuda_s   = client_dst+start_offset;
+            printf("-- %.5f/%.5f diff %.4f\n",src_x_u[i], cuda_s[i], src_x_u[i]-cuda_s[i] );
+        }
+#endif
+
+        cudaFree(s_flow);
+        cudaFree(s_lt);
+        cudaFree(d_lt);
+    }
+#endif
 }
 
 /* ************************************************************************* */
 void halfsample_image(const cv::Mat& src, cv::Mat& dst) {
 
+#if (!HALF_SIZE_CUDA)
   // Make sure the destination image is of the right size
   cv::resize(src, dst, dst.size(), 0, 0, cv::INTER_AREA);
+#else
+    {
+        float* s_src;
+        float* d_dst;
+
+        size_t img_size = dst.cols*dst.rows*sizeof(float);
+
+        cudaMalloc(&s_src, img_size*4);
+        cudaMalloc(&d_dst, img_size);
+
+       // float* client_dst = (float*)malloc( img_size);
+
+        cudaMemcpy(s_src, src.data, img_size*4, cudaMemcpyHostToDevice);
+
+        DownSize2x2AreaFastCUDA( s_src, d_dst,  dst.cols, dst.rows);
+
+        cudaMemcpy(dst.data, d_dst, img_size, cudaMemcpyDeviceToHost);
+       // cudaMemcpy(client_dst, d_dst, img_size, cudaMemcpyDeviceToHost);
+#if 0
+        //
+        int start_offset = 128*dst.cols;
+
+        for(int i = 0; i < dst.cols; ++i)
+        {
+            const float* src_x_u  = dst.ptr<float>(128);
+            const float* cuda_s   = client_dst+start_offset;
+            printf("-- %.5f/%.5f diff %.4f\n",src_x_u[i], cuda_s[i], src_x_u[i]-cuda_s[i] );
+        }
+#endif
+
+        cudaFree(s_src);
+        cudaFree(d_dst);
+    }
+#endif
 }
 
 /* ************************************************************************* */
