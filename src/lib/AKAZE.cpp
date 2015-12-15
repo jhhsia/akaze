@@ -21,6 +21,7 @@
  */
 
 #include "AKAZE.h"
+#include <stdio.h>
 #include <opencv2/highgui/highgui.hpp>
 
 using namespace std;
@@ -242,6 +243,9 @@ void AKAZE::Compute_Determinant_Hessian_Response() {
 }
 
 /* ************************************************************************* */
+
+
+#define CUDA_TEST 1
 void AKAZE::Find_Scale_Space_Extrema(std::vector<cv::KeyPoint>& kpts) {
 
   double t1 = 0.0, t2 = 0.0;
@@ -264,7 +268,11 @@ void AKAZE::Find_Scale_Space_Extrema(std::vector<cv::KeyPoint>& kpts) {
 
   t1 = cv::getTickCount();
 
-  for (size_t i = 0; i < evolution_.size(); i++) {
+#if 0
+    local_extrema(options_, evolution_ );
+#else
+
+    for (size_t i = 0; i < evolution_.size(); i++) {
     for (int ix = 1; ix < evolution_[i].Ldet.rows-1; ix++) {
 
       float* ldet_m = evolution_[i].Ldet.ptr<float>(ix-1);
@@ -277,6 +285,8 @@ void AKAZE::Find_Scale_Space_Extrema(std::vector<cv::KeyPoint>& kpts) {
         is_repeated = false;
         is_out = false;
         value = ldet[jx];
+
+          //printf("-- 0000 at %.2f \n", ldet[jx]);
 
         // Filter the points with the detector threshold
         if (value > options_.dthreshold && value >= options_.min_dthreshold &&
@@ -348,6 +358,9 @@ void AKAZE::Find_Scale_Space_Extrema(std::vector<cv::KeyPoint>& kpts) {
       } // for jx
     } // for ix
   } // for i
+#endif
+
+
 
   // Now filter points with the upper scale level
   for (size_t i = 0; i < kpts_aux.size(); i++) {

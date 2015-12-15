@@ -9,7 +9,7 @@
 
 /* ************************************************************************* */
 #include <AKAZEConfig.h>
-
+#include <stdio.h>
 /* ************************************************************************* */
 /// Convolve an image with a 2D Gaussian kernel
 void gaussian_2D_convolution(const cv::Mat& src, cv::Mat& dst, size_t ksize_x, size_t ksize_y, float sigma);
@@ -121,3 +121,20 @@ bool check_maximum_neighbourhood(const cv::Mat& img, int dsize, float value,
 
 
 void cal_determinant_hessian(std::vector<TEvolution>& evo, bool verb);
+
+
+void local_extrema(AKAZEOptions& options, std::vector<TEvolution>& evolution);
+
+static inline void PrintSurroundPixels(int x, int y, const float* src, int width)
+{
+    int up2_offset = width * (y-2);
+    int up_offset = width * (y-1);
+    int m_offset = width * (y);
+    int d_offset = width * (y+1);
+    int d2_offset = width * (y+2);
+    printf(" << %.5f, %.5f, %.5f, %.5f, %.5f >>\n",src[up2_offset+x-2],src[up2_offset+x-1],src[up2_offset+x],src[up2_offset+x+1], src[up2_offset+x+2] );
+    printf(" << %.5f, %.5f, %.5f, %.5f, %.5f >>\n",src[up_offset+x-2],src[up_offset+x-1],src[up_offset+x],src[up_offset+x+1], src[up_offset+x+2] );
+    printf(" << %.5f, %.5f, %.5f, %.5f, %.5f >>\n",src[m_offset+x-2],src[m_offset+x-1],src[m_offset+x],src[m_offset+x+1], src[m_offset+x+2] );
+    printf(" << %.5f, %.5f, %.5f, %.5f, %.5f >>\n",src[d_offset+x-2],src[d_offset+x-1],src[d_offset+x],src[d_offset+x+1], src[d_offset+x+2]);
+    printf(" << %.5f, %.5f, %.5f, %.5f, %.5f >>\n",src[d2_offset+x-2],src[d2_offset+x-1],src[d2_offset+x],src[d2_offset+x+1], src[d2_offset+x+2] );
+}

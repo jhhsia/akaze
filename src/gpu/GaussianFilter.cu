@@ -28,7 +28,7 @@ __global__ void GaussianBlur(  const float* src, float* dst, int width, const in
         int bounded_y =  min( max( y_off + pix_j, 0), width-1 ) - pix_j;
 
         int pix_y_offset = bounded_y*width;
-#pragma unroll
+        #pragma unroll
         for(int i = 0; i < ksize ; ++i)
         {
             int x_off = i - mid;
@@ -141,7 +141,7 @@ void GaussianCUDA5x5TwoPass( const float* src, float* interm, float* dst, float 
     dim3 numBlocks(width / threadsPerBlock.x, height / threadsPerBlock.y);
 
     GetGaussianLinear( 5, sigma, HostK);
-    cudaMemcpyToSymbolAsync(Kenrnel, HostK, 81*sizeof(float), 0 , cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbolAsync(Kenrnel, HostK, 16*sizeof(float), 0 , cudaMemcpyHostToDevice);
 
     GaussianHPass<<<numBlocks, threadsPerBlock>>>(src, interm, width, 5 );
     GaussianVPass<<<numBlocks, threadsPerBlock>>>(interm, dst, width, 5 );
@@ -154,10 +154,18 @@ void GaussianCUDA9x9TwoPass( const float* src, float* interm, float* dst, float 
     dim3 numBlocks(width / threadsPerBlock.x, height / threadsPerBlock.y);
 
     GetGaussianLinear( 9, sigma, HostK);
-    cudaMemcpyToSymbolAsync(Kenrnel, HostK, 81*sizeof(float), 0 , cudaMemcpyHostToDevice);
+    cudaMemcpyToSymbolAsync(Kenrnel, HostK, 16*sizeof(float), 0 , cudaMemcpyHostToDevice);
 
     GaussianHPass<<<numBlocks, threadsPerBlock>>>(src, interm, width, 9 );
-    cudaDeviceSynchronize();
     GaussianVPass<<<numBlocks, threadsPerBlock>>>(interm, dst, width, 9 );
+
+    cudaError_t errSync  = cudaGetLastError();
+    cudaError_t errAsync = cudaDeviceSynchronize();
+    if (errSync != cudaSuccess)
+        printf("Sync kernel error: %d\n", cudaGetErrorString(errSync));
+
+    if (errAsync != cudaSuccess)
+        printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+
 }
 

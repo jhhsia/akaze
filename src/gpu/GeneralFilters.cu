@@ -103,14 +103,14 @@ DeterminantHessianCuda(const float* lxx, const float* lyy, const float* lxy, flo
     int idx = GetGlobalIdx();
 
     // since the numbers are really small multiply sigma_quad might be better?
-    det[idx] = (lxx[idx]*lyy[idx]*sigma_quad-lxy[idx]*lxy[idx]*sigma_quad);
+    det[idx] = (lxx[idx]*lyy[idx]*sigma_quad - lxy[idx]*lxy[idx]*sigma_quad);
 
 }
 
 
 
 // TODO  sharr filter almost 10x slower, investigate!
-void ScharrFilerCuda( const float* src, float* dst, int width, int height , int direction )
+void ScharrFilterCuda( const float* src, float* dst, int width, int height , int direction )
 {
 
     dim3 threadsPerBlock(16, 16);

@@ -152,3 +152,107 @@ void NLDStepScalarCUDA(const float* src, const float* stLd, float* dlt, float st
 
     NLDStepScalarCuda<<<numBlocks, threadsPerBlock>>>(src, stLd , dlt, 0.5f*stepSize,width );
 }
+
+//////////////////////////////////////////////////////////////////////////////////
+__global__ void
+KeyPointLocalExtremaCUDA( const float* ldet, const float* ref_u, const float* ref_d, float*  dest,
+                          float smax_x_sigma_size, float dthresh, int width , int height)
+{
+    int idx = GetGlobalIdx();
+    const float src_m = ldet[idx];
+
+    float out_val = -1.0f;
+    if( src_m > dthresh )
+    {
+
+        int p_x = idx%width;
+        int p_y = idx/width;
+        int left_x = p_x-smax_x_sigma_size-1;
+        int right_x = p_x+smax_x_sigma_size+1;
+        int up_y = p_y-smax_x_sigma_size-1;
+        int down_y = p_y+smax_x_sigma_size+1;
+
+        if ( (left_x < 0 || right_x >= width ||
+              up_y < 0 || down_y >= height) == false) {
+
+            const float src_ul = ldet[idx - width - 1];
+            const float src_um = ldet[idx - width];
+            const float src_ur = ldet[idx - width + 1];
+
+            const float src_l = ldet[idx + 1];
+            const float src_r = ldet[idx - 1];
+
+            const float src_ll = ldet[idx + width - 1];
+            const float src_lm = ldet[idx + width];
+            const float src_lr = ldet[idx + width + 1];
+
+            float mid_max = max(src_l, src_r);
+            float local_max = max(max(src_ul, src_um),src_ur);
+            float lower_max = max(max(src_ll, src_lm),src_lr);
+
+            if( (src_m > mid_max) && (src_m > local_max) && (src_m > lower_max) )
+            {
+                float response = abs( src_m );
+                out_val = response;
+                // compare with ref kps ?
+            }
+        }
+    }
+
+    dest[idx] = out_val;
+
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+__global__ void
+KeyPointLocalSpaceExtremaCUDA( const float* ldet,  float*  dest, int kp_step, float kp_size_sqr, int width , int height)
+{
+    int idx = GetGlobalIdx();
+    float src_val  = ldet[idx];
+
+    for(int j = 1; j <= kp_step; ++j)
+    {
+        int y_offset = width*j;
+        float y_dist_sqrt = (j*j);
+        for(int i = 1; i <= kp_step; ++i)
+        {
+            float sample_val = ldet[idx + i + y_offset];
+            if( sample_val > src_val)
+            {
+                dest[idx] = -1.0f;
+                return;
+            }
+        }
+    }
+
+    for(int j = -kp_step; j <= -1; ++j)
+    {
+        int y_offset = width*j;
+        float y_dist_sqrt = (j*j);
+        for(int i = -kp_step; i <= -1; ++i)
+        {
+            float sample_val = ldet[idx + i + y_offset];
+            if( sample_val > src_val)
+            {
+                dest[idx] = -1.0f;
+                return;
+            }
+        }
+    }
+
+
+    dest[idx] = src_val;
+}
+
+void KeyPointExtract(const float* ldet, float* interm, float*  dest,  float kp_size, float smax_x_sigma_size, float dthresh ,
+                     float ratio, int width, int height)
+{
+    dim3 threadsPerBlock(16, 16);
+    dim3 numBlocks(width / threadsPerBlock.x, height / threadsPerBlock.y);
+    KeyPointLocalExtremaCUDA<<<numBlocks, threadsPerBlock>>>(ldet, NULL , NULL, interm, smax_x_sigma_size, dthresh, width , height);
+
+    float kp_size_sqr = kp_size*kp_size/(ratio*ratio);
+    int pix_step = floorf(kp_size/ratio);
+    printf("pix_step = %d, %d\n",  pix_step, width);
+    KeyPointLocalSpaceExtremaCUDA<<<numBlocks, threadsPerBlock>>>(interm, dest, pix_step,kp_size_sqr, width , height);
+}

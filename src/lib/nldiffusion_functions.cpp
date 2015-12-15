@@ -22,6 +22,7 @@
 #include "nldiffusion_functions.h"
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/features2d/features2d.hpp>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include "../gpu/helper_cuda.h"
@@ -29,6 +30,9 @@
 #include "../gpu/helper_image.h"
 using namespace std;
 
+inline int fRound(float flt) {
+    return (int)(flt+0.5f);
+}
 #define NO_CUDA 0
 
 #if NO_CUDA
@@ -155,13 +159,13 @@ void gaussian_2D_convolution(const cv::Mat& src, cv::Mat& dst, size_t ksize_x,
         cudaFree(d_dst);
         cudaFree(d_intem);
 
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
         //float time = 1000.0*(t2-t1) / cv::getTickFrequency();
         printf("-- gaussian_2D_convolution %.4f ksize  %d\n",milliseconds,ksize_x );
 
     }
 #endif
-
-
 
 
 
@@ -181,17 +185,38 @@ void image_derivatives_scharr(const cv::Mat& src, cv::Mat& dst,
 #else
 
     {
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+
         float* d_src;
         float* d_dst;
 
         size_t img_size = dst.cols*dst.rows*sizeof(float);
         cudaMalloc(&d_src, img_size);
         cudaMalloc(&d_dst, img_size);
-        float* client_dst = (float*)malloc( img_size);
+       // float* client_dst = (float*)malloc( img_size);
 
         cudaMemcpy(d_src, src.data, img_size, cudaMemcpyHostToDevice);
-        ScharrFilerCuda(d_src, d_dst, src.cols, src.rows, yorder);
+
+        cudaEventRecord(start);
+
+        ScharrFilterCuda(d_src, d_dst, src.cols, src.rows, yorder);
+
+        cudaDeviceSynchronize();
+        cudaEventRecord(stop);
+
         cudaMemcpy(dst.data, d_dst, img_size, cudaMemcpyDeviceToHost);
+
+        float milliseconds = 0;
+        cudaEventElapsedTime(&milliseconds, start, stop);
+
+
+
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        //float time = 1000.0*(t2-t1) / cv::getTickFrequency();
+        printf("-- derivatives_scharr %.6f \n",milliseconds );
 
 #if 0
         cudaMemcpy(client_dst, d_dst, img_size, cudaMemcpyDeviceToHost);
@@ -491,6 +516,13 @@ void compute_scharr_derivatives(const cv::Mat& src, cv::Mat& dst, const size_t x
     //TODO this is 20+ms slower than sepFilter2D!!
 
     {
+
+     //   cudaEvent_t start, stop;
+    //    cudaEventCreate(&start);
+    //    cudaEventCreate(&stop);
+
+
+
         float* s_src;
         float* d_dst;
 
@@ -509,8 +541,22 @@ void compute_scharr_derivatives(const cv::Mat& src, cv::Mat& dst, const size_t x
         float mk = ref.ptr<float>(0)[hsize/2 ];
         float ek = ref.ptr<float>(0)[0];
 
+     //   cudaEventRecord(start);
+
         SharrDerivativeCUDA( s_src, d_dst, mk, ek,yorder,hsize, src.cols, src.rows );
+
+     //   cudaDeviceSynchronize();
+     //   cudaEventRecord(stop);
+
         cudaMemcpy(dst.data, d_dst, img_size, cudaMemcpyDeviceToHost);
+
+
+    //    float milliseconds = 0;
+    //    cudaEventElapsedTime(&milliseconds, start, stop);
+   //     cudaEventDestroy(start);
+   //     cudaEventDestroy(stop);
+        //float time = 1000.0*(t2-t1) / cv::getTickFrequency();
+   //     printf("-- compute_scharr_derivatives %.4f \n",milliseconds );
 
        // cudaMemcpy(client_dst, d_dst, img_size, cudaMemcpyDeviceToHost);
 #if 0
@@ -534,10 +580,10 @@ void compute_scharr_derivatives(const cv::Mat& src, cv::Mat& dst, const size_t x
 void cal_determinant_hessian(std::vector<TEvolution>& evo, bool verb )
 {
     for (size_t i = 0; i < evo.size(); i++) {
-
-#if (!HASSIAN_CUDA)
         if (verb == true)
             cout << "Computing detector response. Determinant of Hessian. Evolution time: " << evo[i].etime << endl;
+
+#if (!HASSIAN_CUDA)
 
         float sigma_size_ = evo[i].multiDerSigmaSize;
         float sigma_size_sqr = sigma_size_*sigma_size_;
@@ -561,6 +607,11 @@ void cal_determinant_hessian(std::vector<TEvolution>& evo, bool verb )
 
 #else
         {
+
+            cudaEvent_t start, stop;
+            cudaEventCreate(&start);
+            cudaEventCreate(&stop);
+
             float* s_lxx;
             float* s_lyy;
             float* s_lxy;
@@ -581,8 +632,23 @@ void cal_determinant_hessian(std::vector<TEvolution>& evo, bool verb )
             float sigma_size_ = evo[i].multiDerSigmaSize;
             float sigma_size_sqr = sigma_size_*sigma_size_;
             float sigma_size_quad = sigma_size_sqr*sigma_size_sqr;
+
+
+            cudaEventRecord(start);
+
             DeterminantHessianCUDA( s_lxx, s_lyy, s_lxy, ldet, sigma_size_quad, evo[i].Lxx.cols, evo[i].Lxx.rows);
+
+            cudaDeviceSynchronize();
+            cudaEventRecord(stop);
+
             cudaMemcpy(evo[i].Ldet.data, ldet, img_size, cudaMemcpyDeviceToHost);
+
+            float milliseconds = 0;
+            cudaEventElapsedTime(&milliseconds, start, stop);
+            cudaEventDestroy(start);
+            cudaEventDestroy(stop);
+            //float time = 1000.0*(t2-t1) / cv::getTickFrequency();
+            printf("-- cal_determinant_hessian %.4f \n",milliseconds );
 
     #if 0
             cudaMemcpy(client_dst, ldet, img_size, cudaMemcpyDeviceToHost);
@@ -716,6 +782,11 @@ void nld_step_scalar(cv::Mat& Ld, const cv::Mat& c, cv::Mat& Lstep, const float 
     }
 #else
     {
+
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+
         float* s_flow;
         float* s_lt;
         float* d_lt;
@@ -725,13 +796,29 @@ void nld_step_scalar(cv::Mat& Ld, const cv::Mat& c, cv::Mat& Lstep, const float 
         cudaMalloc(&s_lt, img_size);
         cudaMalloc(&d_lt, img_size);
 
-        float* client_dst = (float*)malloc( img_size);
+        //float* client_dst = (float*)malloc( img_size);
 
         cudaMemcpy(s_flow, c.data, img_size, cudaMemcpyHostToDevice);
         cudaMemcpy(s_lt, Ld.data, img_size, cudaMemcpyHostToDevice);
 
+        cudaEventRecord(start);
+
         NLDStepScalarCUDA( s_flow, s_lt, d_lt, stepsize, Lstep.cols, Lstep.rows );
+
+        cudaDeviceSynchronize();
+        cudaEventRecord(stop);
+
         cudaMemcpy(Ld.data, d_lt, img_size, cudaMemcpyDeviceToHost);
+
+        float milliseconds = 0;
+        cudaEventElapsedTime(&milliseconds, start, stop);
+
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        //float time = 1000.0*(t2-t1) / cv::getTickFrequency();
+        printf("-- nld_step_scalar  %.5f \n",milliseconds );
+
+
       //  cudaMemcpy(client_dst, d_lt, img_size, cudaMemcpyDeviceToHost);
 #if 0
         // Ld = Ld + Lstep
@@ -875,4 +962,186 @@ bool check_maximum_neighbourhood(const cv::Mat& img, int dsize, float value,
   }
 
   return response;
+}
+
+
+
+void local_extrema(AKAZEOptions& options, std::vector<TEvolution>& evolution)
+{
+
+    double t1 = 0.0, t2 = 0.0;
+    float value = 0.0;
+    float dist = 0.0, ratio = 0.0, smax = 0.0;
+    int npoints = 0, id_repeated = 0;
+    int sigma_size_ = 0, left_x = 0, right_x = 0, up_y = 0, down_y = 0;
+    bool is_extremum = false, is_repeated = false, is_out = false;
+    cv::KeyPoint point;
+    vector<cv::KeyPoint> kpts_aux;
+
+    // Set maximum size
+    if (options.descriptor == SURF_UPRIGHT || options.descriptor == SURF ||
+        options.descriptor == MLDB_UPRIGHT || options.descriptor == MLDB) {
+        smax = 10.0*sqrtf(2.0f);
+    }
+    else if (options.descriptor == MSURF_UPRIGHT || options.descriptor == MSURF) {
+        smax = 12.0*sqrtf(2.0f);
+    }
+
+    t1 = cv::getTickCount();
+
+    float dthresh = options.dthreshold;
+
+    for (size_t i = 0; i < evolution.size(); i++) {
+
+        float* d_src;
+        float* d_dst;
+        float* d_intem;
+
+        float kp_size = evolution[i].esigma*options.derivative_factor;
+
+        float ratio = pow(2.0f, evolution[i].octave);
+        float sigma_size_ = fRound(kp_size/ratio);
+
+        float smax_sigma = smax*sigma_size_;
+
+        printf("--  smax*sigma_size at %.2f \n",kp_size);
+
+        const float* src_read = (const float*)evolution[i].Ldet.data;
+#if 1
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+
+        size_t img_size =  evolution[i].Ldet.rows * evolution[i].Ldet.cols*sizeof(float);
+        int code = cudaMalloc(&d_src, img_size);
+        code = cudaMalloc(&d_intem, img_size);
+        code = cudaMalloc(&d_dst, img_size);
+
+        float* client_dst = (float*)malloc( img_size);
+
+        cudaMemcpy(d_src, evolution[i].Ldet.data , img_size, cudaMemcpyHostToDevice);
+
+        cudaEventRecord(start);
+
+        KeyPointExtract( d_src , d_intem, d_dst, kp_size,
+                          smax_sigma, dthresh , ratio, evolution[i].Ldet.cols, evolution[i].Ldet.rows);
+
+        cudaDeviceSynchronize();
+
+        cudaEventRecord(stop);
+
+        cudaMemcpy(client_dst, d_dst, img_size, cudaMemcpyDeviceToHost);
+
+
+        float milliseconds = 0;
+        cudaEventElapsedTime(&milliseconds, start, stop);
+
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+        //float time = 1000.0*(t2-t1) / cv::getTickFrequency();
+        printf("-- local_extrema %.4f \n",milliseconds  );
+
+
+
+        cudaFree(d_src);
+        cudaFree(d_dst);
+        cudaFree(d_intem);
+#endif
+        for (int ix = 1; ix < evolution[i].Ldet.rows-1; ix++) {
+
+            float* ldet_m = evolution[i].Ldet.ptr<float>(ix-1);
+            float* ldet = evolution[i].Ldet.ptr<float>(ix);
+            float* ldet_p = evolution[i].Ldet.ptr<float>(ix+1);
+
+            for (int jx = 1; jx < evolution[i].Ldet.cols-1; jx++) {
+
+                is_extremum = false;
+                is_repeated = false;
+                is_out = false;
+                value = ldet[jx];
+
+                //printf("-- 0000 at %.2f \n", ldet[jx]);
+
+                // Filter the points with the detector threshold
+                if (value > options.dthreshold && value >= options.min_dthreshold &&
+                    value > ldet[jx-1] && value > ldet[jx+1] &&
+                    value > ldet_m[jx-1] && value > ldet_m[jx] && value > ldet_m[jx+1] &&
+                    value > ldet_p[jx-1] && value > ldet_p[jx] && value > ldet_p[jx+1]) {
+
+                    is_extremum = true;
+                    point.response = fabs(value);
+                    point.size = evolution[i].esigma*options.derivative_factor;
+                    point.octave = evolution[i].octave;
+                    point.class_id = i;
+                    ratio = pow(2.0f, point.octave);
+                    sigma_size_ = fRound(point.size/ratio);
+                    point.pt.x = jx;
+                    point.pt.y = ix;
+
+                    // Compare response with the same and lower scale
+                    for (size_t ik = 0; ik < kpts_aux.size(); ik++) {
+
+                   //     if ((point.class_id-1) == kpts_aux[ik].class_id ||
+                        if ( point.class_id == kpts_aux[ik].class_id) {
+
+                            dist = (point.pt.x*ratio-kpts_aux[ik].pt.x)*(point.pt.x*ratio-kpts_aux[ik].pt.x) +
+                                   (point.pt.y*ratio-kpts_aux[ik].pt.y)*(point.pt.y*ratio-kpts_aux[ik].pt.y);
+
+                            if (dist <= point.size*point.size) {
+                                if (point.response > kpts_aux[ik].response) {
+                                    id_repeated = ik;
+                                    is_repeated = true;
+                                }
+                                else {
+                                    is_extremum = false;
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    // Check out of bounds
+                    if (is_extremum == true) {
+
+                        // Check that the point is under the image limits for the descriptor computation
+                        left_x = fRound(point.pt.x-smax*sigma_size_)-1;
+                        right_x = fRound(point.pt.x+smax*sigma_size_) +1;
+                        up_y = fRound(point.pt.y-smax*sigma_size_)-1;
+                        down_y = fRound(point.pt.y+smax*sigma_size_)+1;
+
+                        if (left_x < 0 || right_x >= evolution[i].Ldet.cols ||
+                            up_y < 0 || down_y >= evolution[i].Ldet.rows) {
+                            is_out = true;
+                        }
+
+                        int idx = jx + ix*evolution[i].Ldet.cols;
+
+                        if (is_out == false) {
+
+                            float value = client_dst[idx];
+
+                            if (is_repeated == false) {
+
+                                point.pt.x = point.pt.x*ratio + .5*(ratio-1.0);
+                                point.pt.y = point.pt.y*ratio + .5*(ratio-1.0);
+                                kpts_aux.push_back(point);
+                                npoints++;
+
+                               // PrintSurroundPixels(jx, ix, client_dst, evolution[i].Ldet.cols );
+                               // printf("-- %.5f/%.5f diff %.4f\n",point.response, value, point.response-value );
+                            }
+                            else {
+                                point.pt.x = point.pt.x*ratio + .5*(ratio-1.0);
+                                point.pt.y = point.pt.y*ratio + .5*(ratio-1.0);
+                                kpts_aux[id_repeated] = point;
+
+                            //    printf("is_repeated -- %.5f/%.5f diff %.4f\n",point.response, value, point.response-value );
+                            }
+                        } // if is_out
+                    } //if is_extremum
+                }
+            } // for jx
+        } // for ix
+        free(client_dst);
+    } // for i
 }
