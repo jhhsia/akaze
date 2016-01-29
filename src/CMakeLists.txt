@@ -72,6 +72,7 @@ install(FILES
     lib/utils.h
     lib/nldiffusion_functions.h
     lib/AKAZEConfig.h
+    gpu/ImageOperation.h
     DESTINATION
     ${AKAZE_INCLUDE_PREFIX}
 )

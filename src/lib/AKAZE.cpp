@@ -549,9 +549,9 @@ void AKAZE::Compute_Descriptors(std::vector<cv::KeyPoint>& kpts, cv::Mat& desc) 
     break;
     case MLDB :
     {
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
+//#ifdef _OPENMP
+//#pragma omp parallel for
+//#endif
       for (int i = 0; i < (int)(kpts.size()); i++) {
         Compute_Main_Orientation(kpts[i]);
         if (options_.descriptor_size == 0)
@@ -1045,6 +1045,8 @@ void AKAZE::Get_MLDB_Full_Descriptor(const cv::KeyPoint& kpt, unsigned char* des
   float si = sin(kpt.angle);
   int pattern_size = options_.descriptor_pattern_size;
 
+    cout << "===========  MLDB ================ " << endl;
+    cout << "xf: " << xf << " yf:" << yf << " level: " <<  kpt.class_id << endl;
   int dpos = 0;
   for(int lvl = 0; lvl < 3; lvl++) {
     int val_count = (lvl + 2) * (lvl + 2);
@@ -1052,6 +1054,9 @@ void AKAZE::Get_MLDB_Full_Descriptor(const cv::KeyPoint& kpt, unsigned char* des
     MLDB_Fill_Values(values, sample_step, kpt.class_id, xf, yf, co, si, scale);
     MLDB_Binary_Comparisons(values, desc, val_count, dpos);
   }
+
+
+    cout << " >>> first 4 byte <<< " <<  (short)desc[0] << (short)desc[1] << (short)desc[2] << (short)desc[3] <<endl;
 }
 
 /* ************************************************************************* */
@@ -1084,6 +1089,7 @@ void AKAZE::MLDB_Fill_Values(float* values, int sample_step, int level,
   int pattern_size = options_.descriptor_pattern_size;
   int nr_channels = options_.descriptor_channels;
   int valpos = 0;
+
 
   for (int i = -pattern_size; i < pattern_size; i += sample_step) {
     for (int j = -pattern_size; j < pattern_size; j += sample_step) {
@@ -1133,6 +1139,8 @@ void AKAZE::MLDB_Fill_Values(float* values, int sample_step, int level,
         values[valpos + 2] = dy;
 
       valpos += nr_channels;
+
+        cout << " dx: "<< dx << " dy: " << dy << " di: "   << di << endl;
     }
   }
 }

@@ -33,7 +33,7 @@ using namespace std;
 inline int fRound(float flt) {
     return (int)(flt+0.5f);
 }
-#define NO_CUDA 0
+#define NO_CUDA 1
 
 #if NO_CUDA
     #define SHARR_CUDA 0
