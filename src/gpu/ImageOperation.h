@@ -16,3 +16,20 @@ void DeterminantHessianCUDA(const float* lxx, const float* lyy, const float* lxy
 
 void KeyPointExtract(const float* ldet, float* interm, float*  dest,  float kp_size, float smax_x_sigma_size, float dthresh,
                      float ratio, int width, int height);
+
+struct DspKPCUDAEntry
+{
+    float size;
+    float pt_x;
+    float pt_y;
+    float ratio;
+    float angle;
+    int imgWidth;
+
+    float* lx;
+    float* ly;
+    float* lt;
+
+} __attribute__ ((aligned (64)));
+
+void ComputeMainOrientationGPU( DspKPCUDAEntry* kptAngle, unsigned char* out, int count  );

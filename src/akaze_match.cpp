@@ -25,6 +25,9 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "../gpu/helper_cuda.h"
 using namespace std;
 
 /* ************************************************************************* */
@@ -48,7 +51,17 @@ int parse_input_options(AKAZEOptions &options, std::string& img_path1,
 /* ************************************************************************* */
 int main(int argc, char *argv[]) {
 
-  // Variables
+
+    int dev = gpuDeviceInit(0);
+
+    cudaDeviceProp device_prop;
+    checkCudaErrors(cudaGetDeviceProperties(&device_prop, dev));
+
+    printf("CUDA device [%s] has %d Multi-Processors, Compute %d.%d\n",
+           device_prop.name, device_prop.multiProcessorCount, device_prop.major, device_prop.minor);
+
+
+    // Variables
   AKAZEOptions options;
   cv::Mat img1, img1_32, img2, img2_32, img1_rgb, img2_rgb, img_com, img_r;
   string img_path1, img_path2, homography_path;
@@ -111,11 +124,11 @@ int main(int argc, char *argv[]) {
 
   evolution1.Create_Nonlinear_Scale_Space(img1_32);
   evolution1.Feature_Detection(kpts1);
-  evolution1.Compute_Descriptors(kpts1, desc1);
+  evolution1.Compute_DescriptorsGpu(kpts1, desc1);
 
   evolution2.Create_Nonlinear_Scale_Space(img2_32);
   evolution2.Feature_Detection(kpts2);
-  evolution2.Compute_Descriptors(kpts2, desc2);
+  evolution2.Compute_DescriptorsGpu(kpts2, desc2);
 
   t2 = cv::getTickCount();
   takaze = 1000.0*(t2-t1)/cv::getTickFrequency();

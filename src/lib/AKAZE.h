@@ -22,7 +22,7 @@ namespace libAKAZE {
 
   class AKAZE {
 
-  private:
+  public:
 
     AKAZEOptions options_;                      ///< Configuration options for AKAZE
     std::vector<TEvolution> evolution_;         ///< Vector of nonlinear diffusion evolution
@@ -77,9 +77,9 @@ namespace libAKAZE {
     void Do_Subpixel_Refinement(std::vector<cv::KeyPoint>& kpts);
 
     /// Feature description methods
-    void Compute_Descriptors(std::vector<cv::KeyPoint>& kpts, cv::Mat& desc);
-
-    /// This method computes the main orientation for a given keypoint
+    void Compute_Descriptors( std::vector<cv::KeyPoint>& kpts, cv::Mat& desc);
+    void Compute_DescriptorsGpu( std::vector<cv::KeyPoint>& kpts, cv::Mat& desc);
+      /// This method computes the main orientation for a given keypoint
     /// @param kpt Input keypoint
     /// @note The orientation is computed using a similar approach as described in the original SURF method.
     /// See Bay et al., Speeded Up Robust Features, ECCV 2006.

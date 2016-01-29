@@ -275,11 +275,11 @@ int main(int argc, char *argv[]) {
 
   evolution1.Create_Nonlinear_Scale_Space(img1_32);
   evolution1.Feature_Detection(kpts1_akaze);
-  evolution1.Compute_Descriptors(kpts1_akaze, desc1_akaze);
+  evolution1.Compute_DescriptorsGpu(kpts1_akaze, desc1_akaze);
 
   evolution2.Create_Nonlinear_Scale_Space(img2_32);
   evolution2.Feature_Detection(kpts2_akaze);
-  evolution2.Compute_Descriptors(kpts2_akaze, desc2_akaze);
+  evolution2.Compute_DescriptorsGpu(kpts2_akaze, desc2_akaze);
 
   if (options.descriptor < MLDB_UPRIGHT)
     matcher_l2->knnMatch(desc1_akaze, desc2_akaze, dmatches_akaze, 2);

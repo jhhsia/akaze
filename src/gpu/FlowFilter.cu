@@ -213,7 +213,7 @@ KeyPointLocalSpaceExtremaCUDA( const float* ldet,  float*  dest, int kp_step, fl
     for(int j = 1; j <= kp_step; ++j)
     {
         int y_offset = width*j;
-        float y_dist_sqrt = (j*j);
+        //float y_dist_sqrt = (j*j);
         for(int i = 1; i <= kp_step; ++i)
         {
             float sample_val = ldet[idx + i + y_offset];
@@ -228,7 +228,7 @@ KeyPointLocalSpaceExtremaCUDA( const float* ldet,  float*  dest, int kp_step, fl
     for(int j = -kp_step; j <= -1; ++j)
     {
         int y_offset = width*j;
-        float y_dist_sqrt = (j*j);
+       // float y_dist_sqrt = (j*j);
         for(int i = -kp_step; i <= -1; ++i)
         {
             float sample_val = ldet[idx + i + y_offset];

@@ -17,6 +17,7 @@
 #define OMP_MAX_THREADS 16
 #endif
 
+#define GPU_MEM 1
 // System
 #include <string>
 #include <vector>
@@ -77,6 +78,7 @@ struct AKAZETiming {
   double extrema;         ///< Scale space extrema computation time in ms
   double subpixel;        ///< Subpixel refinement computation time in ms
   double descriptor;      ///< Descriptors computation time in ms
+    double cudaAsync;
 };
 
 /* ************************************************************************* */
@@ -166,26 +168,45 @@ struct AKAZEOptions {
 /// AKAZE nonlinear diffusion filtering evolution
 struct TEvolution {
 
-  TEvolution() {
-    etime = 0.0f;
-    esigma = 0.0f;
-    octave = 0;
-    sublevel = 0;
-    sigma_size = 0;
-  }
+    TEvolution() {
+        etime = 0.0f;
+        esigma = 0.0f;
+        octave = 0;
+        sublevel = 0;
+        sigma_size = 0;
+    }
 
-  cv::Mat Lx, Ly;                   ///< First order spatial derivatives
-  cv::Mat Lxx, Lxy, Lyy;            ///< Second order spatial derivatives
-  cv::Mat Lflow;                    ///< Diffusivity image
-  cv::Mat Lt;                       ///< Evolution image
-  cv::Mat Lsmooth;                  ///< Smoothed image
-  cv::Mat Lstep;                    ///< Evolution step update
-  cv::Mat Ldet;                     ///< Detector response
-  float etime;                      ///< Evolution time
-  float esigma;                     ///< Evolution sigma. For linear diffusion t = sigma^2 / 2
-  float multiDerSigmaSize;
-  size_t octave;                    ///< Image octave
-  size_t sublevel;                  ///< Image sublevel in each octave
-  size_t sigma_size;                ///< Integer sigma. For computing the feature detector responses
+                    ///< First order spatial derivatives
+    cv::Mat Lx, Ly;
+#if GPU_MEM
+    float* memBase;
+    float* LxGpu;
+    float* LyGpu;
+    float* LxxGpu;            ///< Second order spatial derivatives
+    float* LxyGpu;
+    float* LyyGpu;
+    float* LflowGpu;
+    float* LsmoothGpu;
+    float* LtGpu[2];
+#else
+    cv::Mat Lxx, Lxy, Lyy;            ///< Second order spatial derivatives
+    cv::Mat Lflow;                    ///< Diffusivity image
+    cv::Mat Lsmooth;                  ///< Smoothed image
+    cv::Mat Lt;                       ///< Evolution image
+#endif
+
+
+    cv::Mat Lstep;                    ///< Evolution step update
+    cv::Mat Ldet;                     ///< Detector response
+    float etime;                      ///< Evolution time
+    float esigma;                     ///< Evolution sigma. For linear diffusion t = sigma^2 / 2
+    float multiDerSigmaSize;
+    int imgWidth;
+    int imgHeight;
+    int imgSize;
+    int ltBufIdx;
+    size_t octave;                    ///< Image octave
+    size_t sublevel;                  ///< Image sublevel in each octave
+    size_t sigma_size;                ///< Integer sigma. For computing the feature detector responses
 };
 

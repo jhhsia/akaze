@@ -59,6 +59,7 @@ int main(int argc, char *argv[]) {
     //
   // Variables
   AKAZEOptions options;
+
   string img_path, kpts_path;
 
   // Variable for computation times.
@@ -100,9 +101,40 @@ int main(int argc, char *argv[]) {
   tdet = 1000.0*(t2-t1) / cv::getTickFrequency();
 
   // Compute descriptors.
-  cv::Mat desc;
+  cv::Mat descgpu;
+    cv::Mat desc;
   t1 = cv::getTickCount();
-  evolution.Compute_Descriptors(kpts, desc);
+
+#if GPU_MEM
+    evolution.Compute_DescriptorsGpu(kpts, descgpu);
+#endif
+
+#if 0
+    evolution.Compute_Descriptors(kpts, desc);
+    int total_diff = 0;
+    for(int i = 0 ; i < kpts.size(); ++i)
+    {
+        int byte_diff = 0;
+        unsigned char* desp = desc.ptr<unsigned char>(i);
+        unsigned char* descgpup = descgpu.ptr<unsigned char>(i);
+
+        for(int h = 0; h<61;++h)
+        {
+            int diff = desp[h] - descgpup[h];
+            //cout<< desp[h] ;
+            if( diff != 0)
+            {
+                byte_diff++;
+            }
+        }
+        if( byte_diff > 1)
+        {
+            cout<< "descriptor " << i << " diff: " << byte_diff  << " level: " << kpts[i].class_id  <<endl;
+            ++total_diff;
+        }
+    }
+    cout << "descriptor diff: " << total_diff << " c" << endl;
+#endif
   t2 = cv::getTickCount();
   tdesc = 1000.0*(t2-t1) / cv::getTickFrequency();
 
@@ -112,6 +144,7 @@ int main(int argc, char *argv[]) {
   cout << "Number of points: " << kpts.size() << endl;
   cout << "Time Detector: " << tdet << " ms" << endl;
   cout << "Time Descriptor: " << tdesc << " ms" << endl;
+
 
   // Save keypoints in ASCII format
   if (!kpts_path.empty())

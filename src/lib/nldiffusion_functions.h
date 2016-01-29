@@ -8,11 +8,24 @@
 #pragma once
 
 /* ************************************************************************* */
-#include <AKAZEConfig.h>
+#include "AKAZEConfig.h"
 #include <stdio.h>
 /* ************************************************************************* */
+
+struct CUDA_MEM_INFO
+{
+    void* cudaMemBase_;
+    size_t totalSize_;
+};
+
+bool InitCudaMemory( size_t totalSize);
 /// Convolve an image with a 2D Gaussian kernel
+#if GPU_MEM
+void gaussian_2D_convolution(const float* src, float* dst, size_t ksize_x, size_t ksize_y, float sigma, int width, int height);
+#else
 void gaussian_2D_convolution(const cv::Mat& src, cv::Mat& dst, size_t ksize_x, size_t ksize_y, float sigma);
+#endif
+void gaussian_2D_convolutionGMEM(const cv::Mat& src, float* dst, size_t ksize_x, size_t ksize_y, float sigma);
 
 /// This function computes image derivatives with Scharr kernel
 /// @param src Input image
@@ -23,9 +36,16 @@ void gaussian_2D_convolution(const cv::Mat& src, cv::Mat& dst, size_t ksize_x, s
 /// other stencils such as Sobel. See Weickert and Scharr,
 /// A Scheme for Coherence-Enhancing Diffusion Filtering with Optimized Rotation Invariance,
 /// Journal of Visual Communication and Image Representation 2002
-void image_derivatives_scharr(const cv::Mat& src, cv::Mat& dst,
-                              const size_t xorder, const size_t yorder);
+#if GPU_MEM
 
+char* GetCudaMem(size_t offset );
+
+void image_derivatives_scharr(float* src, float* dst,
+                              const size_t yorder, int imgWidth, int imgHeight);
+#else
+void image_derivatives_scharr(const cv::Mat& src, cv::Mat& dst,
+                               const size_t yorder);
+#endif
 /// This function computes the Perona and Malik conductivity coefficient g1
 /// g1 = exp(-|dL|^2/k^2)
 /// @param Lx First order image derivative in X-direction (horizontal)
@@ -40,7 +60,12 @@ void pm_g1(const cv::Mat& Lx, const cv::Mat& Ly, cv::Mat& dst, const float k);
 /// @param Ly First order image derivative in Y-direction (vertical)
 /// @param dst Output image
 /// @param k Contrast factor parameter
+#if GPU_MEM
+void pm_g2(float* LxGpu, float* LyGpu, float* dst, const float k, int width, int height);
+#else
 void pm_g2(const cv::Mat& Lx, const cv::Mat& Ly, cv::Mat& dst, const float k);
+#endif
+
 
 /// This function computes Weickert conductivity coefficient gw
 /// @param Lx First order image derivative in X-direction (horizontal)
@@ -75,14 +100,24 @@ void charbonnier_diffusivity(const cv::Mat& Lx, const cv::Mat& Ly, cv::Mat& dst,
 float compute_k_percentile(const cv::Mat& img, float perc, float gscale,
                            size_t nbins, size_t ksize_x, size_t ksize_y);
 
+float compute_k_percentile_share(const cv::Mat& lx, const cv::Mat& ly, float perc, float gscale,
+                           size_t nbins);
+
 /// This function computes Scharr image derivatives
 /// @param src Input image
 /// @param dst Output image
 /// @param xorder Derivative order in X-direction (horizontal)
 /// @param yorder Derivative order in Y-direction (vertical)
 /// @param scale Scale factor for the derivative size
+
+#if GPU_MEM
+void compute_scharr_derivatives( float* src, float* dst, const size_t xorder,
+                                 const size_t yorder, const size_t scale, int width, int height);
+#else
 void compute_scharr_derivatives(const cv::Mat& src, cv::Mat& dst, const size_t xorder,
                                 const size_t yorder, const size_t scale);
+#endif
+
 
 /// This function performs a scalar non-linear diffusion step
 /// @param Ld Output image in the evolution
@@ -92,13 +127,22 @@ void compute_scharr_derivatives(const cv::Mat& src, cv::Mat& dst, const size_t x
 /// @note Forward Euler Scheme 3x3 stencil
 /// The function c is a scalar value that depends on the gradient norm
 /// dL_by_ds = d(c dL_by_dx)_by_dx + d(c dL_by_dy)_by_dy
+
+#if GPU_MEM
+void nld_step_scalar(float* dst, float* src, float* c, const float stepsize, int width, int height);
+#else
 void nld_step_scalar(cv::Mat& Ld, const cv::Mat& c, cv::Mat& Lstep, const float stepsize);
+#endif
 
 /// This function downsamples the input image using OpenCV resize
 /// @param img Input image to be downsampled
 /// @param dst Output image with half of the resolution of the input image
+#if GPU_MEM
+void halfsample_image(const float* src, float* dst, int width, int height);
 void halfsample_image(const cv::Mat& src, cv::Mat& dst);
-
+#else
+void halfsample_image(const cv::Mat& src, cv::Mat& dst);
+#endif
 /// Compute Scharr derivative kernels for sizes different than 3
 /// @param kx_ The derivative kernel in x-direction
 /// @param ky_ The derivative kernel in y-direction
